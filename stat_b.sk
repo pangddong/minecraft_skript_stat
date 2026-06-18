@@ -1,0 +1,23 @@
+on tab completer for "/stat":
+    if argument at 1 is set:
+        if argument at 2 is not set:
+            set {_s::*} to "open", "pointreset", "rcount", "reset", "set", "setting" and "view"
+    if argument at 1 is "pointreset" or "reset" or "view":
+        if argument at 3 is not set:
+            loop all players:
+                add loop-player's name to {_s::*}
+    if argument at 1 is "set" or "rcount":
+        if argument at 2 is set:
+            if argument at 3 is set:
+                if argument at 4 is set:
+                    if argument at 5 is not set:
+                        loop all players:
+                            add loop-player's name to {_s::*}
+    if argument at 1 is "set":
+        argument at 3 is not set:
+            set {_s::*} to "attack", "crit_ch", "crit_dm", "defense", "health", "lifesteal", "speed" and "stat"
+    if argument at 1 is "rcount":
+        argument at 3 is not set:
+            set {_s::*} to "add" and "set"
+    loop {_s::*}:
+        add loop-value to completions

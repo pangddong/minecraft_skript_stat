@@ -1,0 +1,489 @@
+# {stat::%player%::value::<stat>}:      <stat>의 종류의 실값 ex) helath 0.5 -> 체력 0.5칸
+# {stat::%player%::use::<stat>}:        <stat>을 찍은 횟수
+# {_crb}:                               스텟창을 켤 때 빈 창을 유리창으로 채우기 위해 사용함
+# {stat::%player%::value::stat}:        플레이어가 가지고 있는(남은) 스텟 포인트
+# {stat::%player%::value::usestat}:     플레이어의 사용한 포인트
+# {stat::%player%::sys::lv}:            플레이어의 레벨을 담음. statview에서 해당 플레이어가 몇 레벨인지 보여줌
+# {stat::%player%::sys::lvupstat}:      플레이어의 레벨변화가 있을때 스텟 포인트의 변화를 보임 ex) -5포인트, +12포인트
+# {stat::%player%::sys::spawn}:         플레이어가 죽은 후 부활 선택창을 띄울 수 있는 권한을 관리 ex) 1인 경우 창을 볼 수 있음
+# {stat::%player%::sys::didlv}:         죽은 당시 레벨을 기록함 / {stat::%player%::sys::lv}는 부활 후에 레벨을 0으로 측정함 즉 대체 불가
+# {stat::%player%::sys::exp}:           죽은 당시 레벨바의 진행률을 기록함. 즉 마크 /xp(레벨의 수치를 기록)와 완벽 대응불가
+# {stat::%player%::sys::spawnpoint}:    부활 후 스폰된 위치를 저장. 하늘에서 부활창 띄우고 선택후에 다시 돌아올때 사용
+# {stat::%player%::sys::deathmsg}:      비정상 y좌표 즉사 트리거 발동 시 메세지 한번만 띄우기 위해 사용
+# {_heal}:                              흡혈 시 힐량을 측정하고 담기 위해 사용
+# {stat::%player%::msg::lifestealview}: 흡혈 시 얼마나 힐이 들어왔는지 알려주는 메세지를 제어하기 위해 사용 (true 시 메세지 출력)
+# {stat::%player%::msg::damageview}:    기본 공격 시 어느정도의 데미지가 들어갔는지 알려주는 메세지를 제어하기 위해 사용 (true 시 메세지 출력)
+# {stat::%player%::sys::resettimes}:    포인트 초기화 할 때 남은 횟수를 기록하기 위해 사용
+# {_p}, {_f}, {_n}:                     함수 사용 시 각각 플레이어 닉네임, 실수, 정수 정보가 담김
+# {tran}:                               text 형식으로 받은 값을 다른 형식으로 변환하기 위해 사용
+# {_msgrandom}:                         공허에서 강제 사망 집행시 띄울 메세지를 결정하는 난수를 담음
+
+
+# 유의 사항:                 자수정 조각 아이템 사용됨(자수정 조각 이상 버전)
+
+on swap hand items: # shift + f: 스텟메뉴 열기
+    player is sneaking:
+        cancel event
+        statopen(player)
+
+on first join: # 처음 들어오면 기본적으로 스텟 다 지우고 시작: 초기화 안하면 기본값이 이상함
+    wait 1 tick
+    resetme(player)
+    set {stat::%player%::msg::lifestealview} to true # 기본적으로 흡혈 메세지 켜짐
+    set {stat::%player%::msg::damageview} to false # 기본적으로 기본데미지 메세지 꺼짐
+    set {stat::%player%::sys::resettimes} to 0 # 기본적인 포인트 회수형 초기화 횟수
+
+command /statfirstjoin:
+    trigger:
+        if player is op:
+            wait 1 tick
+            resetme(player)
+            set {stat::%player%::msg::lifestealview} to true # 기본적으로 흡혈 메세지 켜짐
+            set {stat::%player%::msg::damageview} to false # 기본적으로 기본데미지 메세지 꺼짐
+            set {stat::%player%::sys::resettimes} to 0 # 기본적인 포인트 회수형 초기화 횟수
+        else:
+            send "당신은 &6초기 설정&f을 할 권한이 없습니다."
+
+on damage: # 데미지가 오고 간 경우에: 방어력, 공격력, 흡혈 담당
+    if {stat::%victim%::value::defense} is less than 0: # {stat::%victim%::value::defense} < 0
+        set {stat::%victim%::value::defense} to 0
+    else: # {stat::%victim%::value::defense} >= 0
+        remove {stat::%victim%::value::defense} from damage # 받은 데미지에서 방어력값 만큼 제외하고 받음
+    if attacker is player:
+        if attacker is victim:
+            # 본인이 본인에게 입힌 데미지는 공격력 증가를 적용시키지 않음
+        else:
+            chance of ({stat::%attacker%::value::crit_ch})%:
+                play sound "entity_zombie_attack_iron_door" with volume 0.3 and pitch 0 to the attacker
+                set damage to ({stat::%attacker%::value::attack} + damage) * ({stat::%attacker%::value::crit_dm}) # 공격력을 포함한 데미지 * 크리티컬 데미지
+                send "&c크리티컬&f 발생! &a%damage%&f데미지" to attacker
+            else:
+                add {stat::%attacker%::value::attack} to damage # 때린 데미지에 공격력값 만큼 추가하고 입힘
+                if {stat::%attacker%::msg::damageview} is true: # 기본 데미지 메세지 여부
+                    send "데미지: &c%damage%" to attacker
+        chance of 100%: # 100%의 확률로 스텟만큼의 체력을 힐함 (확장성을 위해 확률식 코드 잔재는 남김)
+            set {_heal} to damage*{stat::%attacker%::value::lifesteal}
+            add {_heal} to attacker's health
+            if {stat::%attacker%::msg::lifestealview} is true: # 흡혈 메세지 여부
+                if {_heal} is bigger than 0: # 흡혈을 찍었을 때만 메세지 표시(0.0 보다 클때)
+                    send "&a%{_heal}%&f만큼 체력이 회복되었습니다." to attacker
+    wait 1 tick # 무적시간 없이 데미지가 들어가는 경우가 있어서 이 구문 넣으면 해결 될까 싶어서 넣음(넣은 이후로 없어지긴 함)
+
+on level change: # 레벨이 변경되었을때 그에 맞게 스텟 포인트를 배분
+    set {stat::%player%::sys::lv} to player's level
+    set {stat::%player%::sys::lvupstat} to ({stat::%player%::sys::lv} * 3)-{stat::%player%::value::stat}-{stat::%player%::value::usestat}
+    wait 1 tick
+    add {stat::%player%::sys::lvupstat} to {stat::%player%::value::stat} # {stat::%player%::sys::lvupstat}
+    # 받는 스텟 10으로 변경하기
+    # ex) set {stat::%player%::sys::lvupstat} to ({stat::%player%::sys::lv} * 10)-{stat::%player%::value::stat}-{stat::%player%::value::usestat}
+
+on level up: # 레벨업 하면 소리와 함께 포인트가 추가되었다는 메세지 출력. 그 외는 효과 없음
+    send title "&a레벨업!" with subtitle "&e%{stat::%player%::sys::lv}% 달성" to player for 2 seconds
+    send "&9스텟포인트 %{stat::%player%::sys::lvupstat}%포인트 추가"
+    heal the player
+    play sound "ui_toast_challenge_complete" with volume 0.5 to the player
+
+on level down: # 레벨이 떨어지면 포인트가 추가되었다는 메세지 출력. 그 외는 효과 없음
+    send "&c스텟포인트 %{stat::%player%::sys::lvupstat}%포인트 감소"
+    play sound "block_anvil_place" with volume 0.5 and pitch 0.5 at player
+
+on death of player: # 죽으면 레벨정보를 기록해둠
+    set {stat::%victim%::sys::didlv} to victim's level
+    set {stat::%victim%::sys::exp} to victim's level progress
+    if victim is player:
+        wait 1 tick
+        execute console command "/kill @e[type=experience_orb]"
+
+on respawn: # 부활한 후 공중에서 부활창을 띄움
+    wait 1 tick
+    set {stat::%player%::sys::spawnpoint} to player's location
+    set {stat::%player%::sys::spawn} to 1
+    set player's gamemode to spectator
+    wait 1 tick
+    respawnchoise(player)
+    teleport player to location(0, 5000, 0, world("world"))
+    set player's gamemode to creative
+
+every 1 tick: # 방어력이 너무 높아 공허에서 죽지 않고 계속 살아있는 경우 즉사시킴
+    loop all players:
+        # 플레이어가 정상 범위에 있다면 아래 검사를 아예 건너뜀.
+        loop-player's y-coordinate is bigger than -150:
+            delete {stat::%loop-player%::sys::deathmsg}
+            continue
+        if loop-player's y-coordinate is between -200 and -150: # 즉사 시키기 전 경고 메세지
+            send "당신의 Y좌표가 비정상적입니다. Y좌표가 -500 이하가 될 시 즉사합니다." to loop-player
+        else if loop-player's y-coordinate is less than -500: # y좌표 500 이하에서 사망
+            if loop-player is not dead:
+                if {stat::%loop-player%::sys::deathmsg} is not set: # 메세지 한번만 출력을 위해 넣음
+                    set {stat::%loop-player%::sys::deathmsg} to 1
+                    wait 2 tick
+                    execute console command "kill %loop-player%"
+                    set {_msgrandom} to random integer between 1 and 5
+                    if {_msgrandom} is 1:
+                        broadcast "&e%loop-player%&f님의 방어력은 높았지만 섭리를 거스를 순 없었습니다."
+                    else if {_msgrandom} is 2:
+                        broadcast "&e%loop-player%&f님의 생각보다 세계의 힘은 강력했습니다."
+                    else if {_msgrandom} is 3:
+                        broadcast "&e%loop-player%&f님의 존재를 감당할 수 없어 존재를 부정하기로 했습니다."
+                    else if {_msgrandom} is 4:
+                        broadcast "&e%loop-player%&f님의 육체는 단단했지만 이조차도 운명을 바꿀 순 없었습니다."
+                    else if {_msgrandom} is 5:
+                        broadcast "&e%loop-player%&f님은 존재해서는 안 될 곳에 발을 들인 대가를 치렀습니다."
+        else:
+            delete {stat::%loop-player%::sys::deathmsg}
+
+function statopen(p: player): # 사용시 인벤토리로 아이템과 스텟별 설명을 띄움
+    set {_crb} to 0
+    open chest with 3 rows named "&6스텟" to {_p}
+    loop 27 times:
+        set slot {_crb} of current inventory of {_p} to black stained glass pane named "&7"
+        add 1 to {_crb}
+    set slot 1 of current inventory of {_p} to diamond sword named "&c공격 스텟"
+    add "&f현재 공격스텟: %{stat::%{_p}%::value::attack}%" to lore of slot 1 of current inventory of {_p}
+    add "&f찍은 횟수: %{stat::%{_p}%::use::attack}%" to lore of slot 1 of current inventory of {_p}
+    add " " to lore of slot 1 of current inventory of {_p}
+    add "&91스텟당 공격력이 0.28 증가합니다." to lore of slot 1 of current inventory of {_p}
+    add "&e가진 스텟포인트: %{stat::%{_p}%::value::stat}%" to lore of slot 1 of current inventory of {_p}
+
+    set slot 3 of current inventory of {_p} to totem of undying named "&6체력 스텟"
+    add "&f현재 체력스텟: %({stat::%{_p}%::value::health} - 10)%" to lore of slot 3 of current inventory of {_p}
+    add "&f찍은 횟수: %{stat::%{_p}%::use::health}%" to lore of slot 3 of current inventory of {_p}
+    add " " to lore of slot 3 of current inventory of {_p}
+    add "&91스텟당 체력이 0.5 증가합니다." to lore of slot 3 of current inventory of {_p}
+    add "&e가진 스텟포인트: %{stat::%{_p}%::value::stat}%" to lore of slot 3 of current inventory of {_p}
+    
+    set slot 5 of current inventory of {_p} to diamond chestplate named "&3방어력 스텟"
+    add "&f현재 방어력스텟: %{stat::%{_p}%::value::defense}%" to lore of slot 5 of current inventory of {_p}
+    add "&f찍은 횟수: %{stat::%{_p}%::use::defense}%" to lore of slot 5 of current inventory of {_p}
+    add " " to lore of slot 5 of current inventory of {_p}
+    add "&91스텟당 방어력이 0.1 증가합니다." to lore of slot 5 of current inventory of {_p}
+    add "&e가진 스텟포인트: %{stat::%{_p}%::value::stat}%" to lore of slot 5 of current inventory of {_p}
+
+    set slot 7 of current inventory of {_p} to feather named "&9민첩 스텟"
+    add "&f현재 민첩스텟: %({stat::%{_p}%::value::speed} - 6)%" to lore of slot 7 of current inventory of {_p}
+    add "&f찍은 횟수: %{stat::%{_p}%::use::speed}%" to lore of slot 7 of current inventory of {_p}
+    add " " to lore of slot 7 of current inventory of {_p}
+    add "&91스텟당 민첩 0.15 증가합니다" to lore of slot 7 of current inventory of {_p}
+    add "&e가진 스텟포인트: %{stat::%{_p}%::value::stat}%" to lore of slot 7 of current inventory of {_p}
+
+    set slot 11 of current inventory of {_p} to amethyst shard named "&2크리티컬 확률"
+    add "&f현재 크리티컬 확률: %{stat::%{_p}%::value::crit_ch}%" to lore of slot 11 of current inventory of {_p}
+    add "&f찍은 횟수: %{stat::%{_p}%::use::crit_ch}%" to lore of slot 11 of current inventory of {_p}
+    add " " to lore of slot 11 of current inventory of {_p}
+    add "&91스텟당 크리티컬 확률이 1 증가합니다" to lore of slot 11 of current inventory of {_p}
+    add "&e가진 스텟포인트: %{stat::%{_p}%::value::stat}%" to lore of slot 11 of current inventory of {_p}
+
+    set slot 13 of current inventory of {_p} to trident named "&5크리티컬 데미지"
+    add "&f현재 크리티컬 배수: %{stat::%{_p}%::value::crit_dm}%" to lore of slot 13 of current inventory of {_p}
+    add "&f찍은 횟수: %{stat::%{_p}%::use::crit_dm}%" to lore of slot 13 of current inventory of {_p}
+    add " " to lore of slot 13 of current inventory of {_p}
+    add "&91스텟당 크리티컬 배수가 0.07 증가합니다" to lore of slot 13 of current inventory of {_p}
+    add "&e가진 스텟포인트: %{stat::%{_p}%::value::stat}%" to lore of slot 13 of current inventory of {_p}
+
+    set slot 15 of current inventory of {_p} to redstone named "&d흡혈량"
+    add "&f현재 흡혈량: %{stat::%{_p}%::value::lifesteal}%" to lore of slot 15 of current inventory of {_p}
+    add "&f찍은 횟수: %{stat::%{_p}%::use::lifesteal}%" to lore of slot 15 of current inventory of {_p}
+    add " " to lore of slot 15 of current inventory of {_p}
+    add "&91스텟당 흡혈량이 0.03 증가합니다." to lore of slot 15 of current inventory of {_p}
+    add "&e가진 스텟포인트: %{stat::%{_p}%::value::stat}%" to lore of slot 15 of current inventory of {_p}
+
+    set slot 18 of current inventory of {_p} to nautilus shell named "&d설정"
+    add "&9스텟과 관련 없는 설정창으로 이동합니다." to lore of slot 18 of current inventory of {_p}
+
+    set slot 26 of current inventory of {_p} to barrier named "&d포인트 초기화"
+    add "&c&l※주의※ 찍은 스텟이 초기화 되며 스텟포인트의 형태로 돌아갑니다." to lore of slot 26 of current inventory of {_p}
+    add "&f&l남은 횟수: %{stat::%{_p}%::sys::resettimes}%" to lore of slot 26 of current inventory of {_p}
+    add " " to lore of slot 26 of current inventory of {_p}
+    add "&a사용한 스텟포인트: %{stat::%{_p}%::value::usestat}%" to lore of slot 26 of current inventory of {_p}
+    add "&e가진 스텟포인트: %{stat::%{_p}%::value::stat}%" to lore of slot 26 of current inventory of {_p}
+
+function respawnchoise(p: player): # 부활 했을때 띄울 창 / 스텟을 유지할지, 초기화 할지 고를 수 있음.
+    close {_p}'s inventory
+    while {stat::%{_p}%::sys::spawn} = 1: # on inventory close 사용시 close inventory 구문과 충돌하거나 목록이 제대로 뜨지 않는 문제 발생.
+        open chest with 1 rows named "&6부활하기" to {_p}
+        set slot 3 of current inventory of {_p} to lime wool named "&a경험치 유지"
+        add "&f경험치를 유지하며 스텟을 유지합니다." to lore of slot 3 of current inventory of {_p}
+        add "&c(포인트 단위는 완전하지 않을 수 있습니다.)" to lore of slot 3 of current inventory of {_p}
+
+        set slot 5 of current inventory of {_p} to red wool named "&c경험치 버리기"
+        add "&f경험치를 초기화하며 스텟도 초기화 합니다" to lore of slot 5 of current inventory of {_p}
+        wait 1 tick
+       
+function setting(p: player): # 명령어 사용시 인벤토리로 아이템과 스텟별 설명을 띄움
+    set {_crb} to 0
+    open chest with 1 rows named "&6설정" to {_p}
+    loop 9 times:
+        set slot {_crb} of current inventory of {_p} to black stained glass pane named "&7"
+        add 1 to {_crb}
+    set slot 3 of current inventory of {_p} to oak sign named "&d흡혈 메세지"
+    add "&9흡혈 시 나타나는 메세지의 표시 여부를 정합니다." to lore of slot 3 of current inventory of {_p}
+    add "&e현재 상태: &a%{stat::%{_p}%::msg::lifestealview}%" to lore of slot 3 of current inventory of {_p}
+
+    set slot 5 of current inventory of {_p} to oak sign named "&d기본 공격 메세지"
+    add "&9기본 공격 시 나타나는 메세지의 표시 여부를 정합니다." to lore of slot 5 of current inventory of {_p}
+    add "&e현재 상태: &a%{stat::%{_p}%::msg::damageview}%" to lore of slot 5 of current inventory of {_p}
+
+on inventory click:
+    event-inventory's name is "&6스텟": # 스텟창에서 클릭했을 때 클릭한 칸에 따라 스텟 분배 가능
+        cancel event
+        play sound "UI_BUTTON_CLICK" with volume 0.5 to the player
+        if clicked slot is 26:
+            send "&c&l정말로 초기화를 진행하시겠습니까?<ttp:클릭하여 초기화> <cmd:/stat pointreset>&a&l[초기화]<reset>"
+        else if clicked slot is 18:
+            setting(player)
+        else if {stat::%player%::value::stat} is bigger than 0:
+            if clicked slot is 1: # 공격력
+                add 0.28 to {stat::%player%::value::attack}
+                add 1 to {stat::%player%::use::attack}
+                add 1 to {stat::%player%::value::usestat}
+                remove 1 from {stat::%player%::value::stat}
+            else if clicked slot is 3: # 체력
+                add 0.5 to {stat::%player%::value::health}
+                add 1 to {stat::%player%::use::health}
+                add 1 to {stat::%player%::value::usestat}
+                remove 1 from {stat::%player%::value::stat}
+                statupdate(player)
+            else if clicked slot is 5: # 방어력
+                add 0.1 to {stat::%player%::value::defense}
+                add 1 to {stat::%player%::use::defense}
+                add 1 to {stat::%player%::value::usestat}
+                remove 1 from {stat::%player%::value::stat}
+            else if clicked slot is 7: # 민첩력
+                add 0.3 to {stat::%player%::value::speed}
+                add 1 to {stat::%player%::use::speed}
+                add 1 to {stat::%player%::value::usestat}
+                remove 1 from {stat::%player%::value::stat}
+                statupdate(player)
+            else if clicked slot is 11: # 크리티컬 확률
+                if {stat::%player%::value::crit_ch} is less than 100:
+                    add 1 to {stat::%player%::value::crit_ch}
+                    add 1 to {stat::%player%::use::crit_ch}
+                    add 1 to {stat::%player%::value::usestat}
+                    remove 1 from {stat::%player%::value::stat}
+                else:
+                    send "&6크리티컬 확률&f의 최대 수치는 &e100&f입니다."
+            else if clicked slot is 13: # 크리티컬 데미지
+                add 0.07 to {stat::%player%::value::crit_dm}
+                add 1 to {stat::%player%::use::crit_dm}
+                add 1 to {stat::%player%::value::usestat}
+                remove 1 from {stat::%player%::value::stat}
+            else if clicked slot is 15: # 흡혈
+                add 0.03 to {stat::%player%::value::lifesteal}
+                add 1 to {stat::%player%::use::lifesteal}
+                add 1 to {stat::%player%::value::usestat}
+                remove 1 from {stat::%player%::value::stat}
+            statopen(player)
+        else:
+            send "&c스텟포인트가 부족합니다."
+
+    event-inventory's name is "&6설정": # 설정창에서 클릭했을 때 클릭한 칸에 따라 관련 설정 가능
+        cancel event
+        play sound "UI_BUTTON_CLICK" with volume 0.5 to the player
+        if clicked slot is 3: # 흡혈 시 메세지 표시 여부
+            lifestealview(player)
+        else if clicked slot is 5: # 기본 공격 시 데미지 표시 여부
+            damageview(player)
+        setting(player)
+
+    event-inventory's name is "&6부활하기": # 리스폰 이후 부활 창에서 클릭하는 경우
+        cancel event
+        play sound "UI_BUTTON_CLICK" with volume 0.5 to the player
+        if clicked slot is 3: # 유지를 선택한 경우
+            delete {stat::%player%::sys::spawn}
+            execute console command "/xp set %player% %{stat::%player%::sys::didlv}% levels"
+            wait 5 tick
+            execute console command "/xp set %player% %round({stat::%player%::sys::exp} * 10)% points"
+            # 위 코드는 완전하지 않음: exp의 기록방식이 인게임과 스크립트가 완벽대응되지 않음
+        else if clicked slot is 5: # 초기화를 선택한 경우
+            delete {stat::%player%::sys::spawn}
+            resetme(player)
+        wait 1 tick
+        if {stat::%player%::sys::spawn} is not set:
+            set player's gamemode to survival
+            teleport player to {stat::%player%::sys::spawnpoint}
+            close player's inventory
+    
+function reset(p: player):
+    set {stat::%{_p}%::value::attack} to 0
+    set {stat::%{_p}%::value::health} to 10
+    set {stat::%{_p}%::value::defense} to 0
+    set {stat::%{_p}%::value::speed} to 6
+    set {stat::%{_p}%::value::crit_ch} to 0
+    set {stat::%{_p}%::value::crit_dm} to 1
+    set {stat::%{_p}%::value::lifesteal} to 0
+    set {stat::%{_p}%::value::usestat} to 0
+    set {stat::%{_p}%::use::attack} to 0
+    set {stat::%{_p}%::use::health} to 0
+    set {stat::%{_p}%::use::defense} to 0
+    set {stat::%{_p}%::use::speed} to 0
+    set {stat::%{_p}%::use::crit_ch} to 0
+    set {stat::%{_p}%::use::crit_dm} to 0
+    set {stat::%{_p}%::use::lifesteal} to 0
+    statupdate({_p})
+
+function pointreset(p: player): # 지금까지 찍은 스텟을 전부 지우고 스텟포인트로 돌려줌
+    set {stat::%{_p}%::value::stat} to {stat::%{_p}%::value::usestat} + {stat::%{_p}%::value::stat}
+    wait 1 tick
+    reset({_p})
+    play sound "block.anvil.land" with volume 0.3 and pitch 0.7 to {_p}
+            
+function resetme(p: player): # 스텟 리셋용 함수
+    set {stat::%{_p}%::value::stat} to 0
+    reset({_p})
+    execute console command "/xp set %{_p}% 0 points"
+    execute console command "/xp set %{_p}% 0 levels"
+    play sound "block.anvil.land" with volume 0.3 and pitch 0 to {_p}
+
+function statset(t: text, f: number, p: player):
+    if {_t} is "health":
+        set {stat::%{_p}%::value::health} to ({_f} + 10) # 체력 기본값 10 + @
+    else if {_t} is "speed":
+        set {stat::%{_p}%::value::speed} to ({_f} + 6) # 이속 기본값 6 + @
+    else:
+        set {stat::%{_p}%::value::%{_t}%} to {_f}
+    statupdate({_p})
+
+function statupdate(p: player): # 호출시 현재 스텟에 맞는 체력, 이동속도를 적용
+    # 체력 스텟에 맞춰 적용
+    set max health of {_p} to {stat::%{_p}%::value::health}
+    # 이동속도 스텟에 맞춰 적용
+    set {_p}'s walk speed to ({stat::%{_p}%::value::speed} / 30) # 기본 이속이 달라져서 '/30' 필요.
+
+function lifestealview(p: player): # 흡혈 메세지 출력 여부 조절
+    if {stat::%{_p}%::msg::lifestealview} is true:
+        set {stat::%{_p}%::msg::lifestealview} to false
+        send "&e더 이상 &a흡혈&e 메세지가 출력되지 않습니다." to {_p}
+    else:
+        set {stat::%{_p}%::msg::lifestealview} to true
+        send "&e앞으로 &a흡혈&e 메세지가 출력됩니다." to {_p}
+
+function damageview(p: player): # 기본 데미지 메세지 출력 여부 조절
+    if {stat::%{_p}%::msg::damageview} is true:
+        set {stat::%{_p}%::msg::damageview} to false
+        send "&e더 이상 &a기본 데미지&e 메세지가 출력되지 않습니다." to {_p}
+    else:
+        set {stat::%{_p}%::msg::damageview} to true
+        send "&e앞으로 &a기본 데미지&e 메세지가 출력됩니다." to {_p}
+
+function statresetcount(t: text, n: integer, p: player): # 포인트 초기화 횟수 관리
+    if {_t} is "add": # 음수값으로 차감이 가능하기에 add만 사용
+        add {_n} to {stat::%{_p}%::sys::resettimes}
+    else if {_t} is "set":
+        set {stat::%{_p}%::sys::resettimes} to {_n}
+    wait 1 tick
+    send "&e%{_p}%&f님의 포인트 초기화 횟수가 &a%{stat::%{_p}%::sys::resettimes}%&f번이 되었습니다." to {_p}
+
+command /stat [<text>] [<text>] [<text>] [<text>]:
+    trigger:
+        if arg-1 is "open": # 스텟창 열기
+            statopen(player)
+
+        else if arg-1 is "setting": # 세팅창 열기
+            setting(player)
+
+        else if arg-1 is "pointreset": # 포인트 초기화
+        # arg-2: 닉네임(생략가능)
+            if arg-2 is set: # arg-2 값이 설정되어 있으면 다른 플레이어 정보 수정으로 간주
+                set {_tran} to arg-2 parsed as player
+                if {_tran} is online:
+                    if player is op:
+                        pointreset({_tran})
+                        send "&e%arg-2%님의 포인트 정보를 재설정 하였습니다."
+                        send "&e%arg-2%님의 포인트 정보가 재설정 되었습니다." to {_tran}
+                    else:
+                        send "다른 사람의 포인트를 &6초기화할 권한&f이 없습니다."
+                else:
+                    send "&e%arg-2%&f님은 온라인이 아닙니다."
+            else:
+                if {stat::%player%::sys::resettimes} is bigger than 0: # {stat::%player%::sys::resettimes} > 0
+                    send "&e포인트 정보를 재설정하였습니다."
+                    pointreset(player)
+                    remove 1 from {stat::%player%::sys::resettimes}
+                else:
+                    send "&e포인트 재설정 횟수가 부족합니다."
+
+        else if arg-1 is "reset": # 본인 혹은 타인(op전용)의 스텟과 레벨 전부를 초기화 함
+        # arg-2: 닉네임(생략가능)
+            if player is op:
+                if arg-2 is set: # arg-2 값이 설정되어 있으면 다른 플레이어 정보 수정으로 간주
+                    set {_tran} to arg-2 parsed as player
+                    if {_tran} is online:
+                        send "&e%arg-2%님의 모든 스텟 정보를 재설정하였습니다."
+                        send "&e%arg-2%님의 모든 스텟 정보가 재설정되었습니다." to {_tran}
+                        resetme({_tran})
+                    else:
+                        send "&e%arg-2%&f님은 온라인이 아닙니다."
+                else:
+                    send "&e모든 스텟 정보가 재설정되었습니다."
+                    resetme(player)
+            else:
+                send "스텟을 &6초기화할 권한&f이 없습니다."
+
+        else if arg-1 is "view": # 타인 혹은 본인의 스텟을 출력
+        # arg-2: 닉네임(생략가능)
+            if player is op:
+                if arg-2 is set: # arg-2가 있다면 남의 스텟, 없다면 본인의 스텟을 출력
+                    set {_tran} to arg-2 parsed as player
+                    set {_target} to {_tran}
+                else:
+                    set {_target} to player
+                send "&c&l*****&e&l%{_target}%&a님의 스텟(&b&llv.%{stat::%{_target}%::sys::lv}%&a&l)&c&l*****"
+                # 형식: [종류]: [종료의 사용포인트] ([종류의 실제수치])
+                send "남은 포인트: &5%{stat::%{_target}%::value::stat}%"
+                send "공격력: &5%{stat::%{_target}%::use::attack}% &a(%{stat::%{_target}%::value::attack}%)"
+                send "체력: &5%{stat::%{_target}%::use::health}% &a(%({stat::%{_target}%::value::health} - 10)%)"
+                send "방어력: &5%{stat::%{_target}%::use::defense}% &a(%{stat::%{_target}%::value::defense}%)"
+                send "민첩력: &5%{stat::%{_target}%::use::speed}% &a(%({stat::%{_target}%::value::speed} - 6)%)"
+                send "크리티컬 확률: &5%{stat::%{_target}%::use::crit_ch}% &a(%{stat::%{_target}%::value::crit_ch}%)"
+                send "크리티컬 데미지: &5%{stat::%{_target}%::use::crit_dm}% &a(%{stat::%{_target}%::value::crit_dm}%)"
+                send "흡혈량: &5%{stat::%{_target}%::use::lifesteal}% &a(%{stat::%{_target}%::value::lifesteal}%)"
+                send "사용한 포인트: &5%{stat::%{_target}%::value::usestat}%"
+            else:
+                send "스텟을 &6볼 수 있는 권한&f이 없습니다."
+        
+        else if arg-1 is "set": # 값을 넣어 스텟을 설정함
+        # arg-2: 스텟종류, arg-3: 수치(실수), arg-4: 닉네임(생략가능)
+            if player is op:
+                # 현재 스텟으로 지정되어 있는 값들(해당 값을 변수명에 적용시키기에 변경 불가)
+                if arg-2 is "attack" or "crit_ch" or "crit_dm" or "defense" or "health" or "lifesteal" or "speed" or "stat":
+                    if arg-3 is set:
+                        set {_tran.f} to arg-3 parsed as number
+                        set {_tran.p} to arg-4 parsed as player
+                        if arg-4 is set: # arg-4가 설정되어 있으면 타인, 없으면 본인의 스텟 설정
+                            send "&e%arg-4%&f님의 &6%arg-2%&f 포인트를 &a%{_tran.f}%&f로 설정하였습니다."
+                            send "당신의 &6%arg-2%&f 포인트가 &e%player%&f님에 의해 &a%{_tran.f}%&f로 설정되었습니다." to {_tran.p}
+                            statset(arg-2, {_tran.f}, {_tran.p})
+                        else:
+                            send "&a%arg-2% 포인트를 %{_tran.f}%로 설정하였습니다."
+                            statset(arg-2, {_tran.f}, player)
+                    else:
+                        send "&6정수 &f또는 &6실수&f를 설정해주세요."
+                else:
+                    send "&6항목&f를 설정해주세요. &a(attack / crit_ch / crit_dm / defense / health / lifesteal / speed / stat)"
+            else:
+                send "스텟을 &6수정할 권한&f이 없습니다."
+        
+        else if arg-1 is "rcount": # 포인트 초기화 횟수 관리
+            # arg-2: add/set, arg-3: 수치(정수), arg-4: 닉네임(생략가능)
+            if player is op:
+                if arg-2 is "add" or "set": # 설정 후 send를 한번에 처리하기에 초기에 값 미리 검증함
+                    if arg-3 is set:
+                        set {_tran.n} to arg-3 parsed as integer
+                        set {_tran.p} to arg-4 parsed as player
+                        if arg-4 is set: # arg-4가 있다면 남의 값, 없다면 자신의 값
+                            if {_tran.p} is online:
+                                statresetcount(arg-2, {_tran.n}, {_tran.p})
+                                send "&e당신의&f 포인트 초기화 횟수가 &a%{stat::%{_tran.p}%::sys::resettimes}%&f번이 되었습니다." to {_tran.p}
+                            else:
+                                send "&e%arg-4%&f님은 온라인이 아닙니다."
+                        else:
+                            statresetcount(arg-2, {_tran.n}, player)
+                    else:
+                        send "포인트 초기화 횟수를 &a%arg-2%&f 할 값을 입력해주세요."
+                else:
+                    send "종류를 &a'add / set'&f 중에서 골라주세요."
+            else:
+                send "당신은 &6초기화 횟수 설정&f을 할 권한이 없습니다."
+
+        else:
+            send "&6항목&f를 설정해주세요. &a(open / pointreset / rcount / reset / set / setting / view)"
